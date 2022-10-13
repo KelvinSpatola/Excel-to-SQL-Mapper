@@ -1,0 +1,19 @@
+target/
+.classpath
+.project
+.settings
+
+## Excel files ##
+**/*.xlsx
+
+### Eclipse ###
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
