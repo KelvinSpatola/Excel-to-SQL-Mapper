@@ -69,13 +69,13 @@ public class GTA {
 				sc.close();
 				break;
 			case 1:
-				loadTransactionsFile();
+//				loadTransactionsFile();
 				break;
 			case 2:
-//				loadProductStructureFile();
+				loadProductStructureFile();
 				break;
 			case 3:
-				returnNonExistingTransactionalProducts();
+//				returnNonExistingTransactionalProducts();
 				break;
 			case 4:
 				String storesPath = props.get("data.product-structure")
@@ -92,18 +92,19 @@ public class GTA {
 	}
 
 	private static void loadTransactionsFile() {
+		long start = System.currentTimeMillis();
+		
+		final int TOTAL_SHEETS = 2;
+		int workbookSheet = 0;
+		
+		String storesPath = props.get("data.stores");
+		File[] storeFiles = new File(storesPath).listFiles();
+		int totalStores = storeFiles.length;
+		
 		try (Connection conn = getConnection()) {
-
-			long start = System.currentTimeMillis();
-
-			String storesPath = props.get("data.stores");
-			File[] storeFiles = new File(storesPath).listFiles();
-			int totalStores = storeFiles.length;
-			int storesCount = 0;
-
 			conn.setAutoCommit(false);
 
-			String sql = "INSERT INTO transaction "
+			final String sql = "INSERT INTO transaction "
 					+ "(ticket_id, position, position_desc, date, time, cashdesk, cashdesk_name, payment, payment_desc, "
 					+ "material, material_desc, cat, cat_desc, quantity, value) "
 					+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -111,119 +112,139 @@ public class GTA {
 			statement.setFetchSize(Integer.MIN_VALUE);
 			InputStream inputStream;
 
-			for (File storeFile : storeFiles) {
-				System.out.println("**********************************************************");
-				System.out.println("Reading file: " + storeFile.getName());
-				System.out.println("**********************************************************");
+			while (workbookSheet < TOTAL_SHEETS) {
+				int storesCount = 0;
 				
-				inputStream = new FileInputStream(storeFile);
-				Workbook workbook = StreamingReader.builder().rowCacheSize(500).bufferSize(16384).open(inputStream);
-
-				Iterator<Row> rowIterator = workbook.getSheetAt(1).iterator();
-				rowIterator.next(); // skip the header row
-				
-				storesCount++;
-				int rowsCount = 1; // 1 - header
-				int totalRows = workbook.getSheetAt(1).getLastRowNum();
-				Transaction transaction;
-
-				if (storeFile.getName().contains("Gare do Oriente") || storeFile.getName().contains("Telheiras")) {
-					while (rowIterator.hasNext()) {
-						Row nextRow = rowIterator.next();
-						if (nextRow.getCell(0) == null)
-							break;
-
-						transaction = new Transaction(nextRow, true);
-						transaction.setStatements(statement);
-
-						statement.addBatch();
-						rowsCount++;
-						if (rowsCount % BATCH_SIZE == 0) {
-							statement.executeBatch();
+				for (File storeFile : storeFiles) {
+					System.out.println("**********************************************************");
+					System.out.println("Reading file: " + storeFile.getName());
+					System.out.println("**********************************************************");
+					
+					inputStream = new FileInputStream(storeFile);
+					Workbook workbook = StreamingReader.builder().rowCacheSize(500).bufferSize(16384).open(inputStream);
+					
+					Iterator<Row> rowIterator = workbook.getSheetAt(workbookSheet).iterator();
+					rowIterator.next(); // skip the header row
+					
+					storesCount++;
+					int rowsCount = 1; // 1 - header
+					int totalRows = workbook.getSheetAt(workbookSheet).getLastRowNum();
+					Transaction transaction;
+					
+					if (storeFile.getName().contains("Gare do Oriente") || storeFile.getName().contains("Telheiras")) {
+						while (rowIterator.hasNext()) {
+							Row nextRow = rowIterator.next();
+							if (nextRow.getCell(0) == null)
+								break;
+							
+							transaction = new Transaction(nextRow, true);
+							transaction.setStatements(statement);
+							
+							statement.addBatch();
+							rowsCount++;
+							if (rowsCount % BATCH_SIZE == 0) {
+								statement.executeBatch();
+							}
+							System.out.println("Sheet: " + workbookSheet + " - store: " + storesCount + "/" + totalStores + " - " + storeFile.getName() + " - "
+									+ (rowsCount * 100) / totalRows + "% - row: " + rowsCount);
 						}
-						System.out.println(storesCount + "/" + totalStores + " - " + storeFile.getName() + " - "
-								+ (rowsCount * 100) / totalRows + "% - row: " + rowsCount);
-					}
-				} else {
-					while (rowIterator.hasNext()) {
-						Row nextRow = rowIterator.next();
-						if (nextRow.getCell(0) == null)
-							break;
-
-						transaction = new Transaction(nextRow, false);
-						transaction.setStatements(statement);
-
-						statement.addBatch();
-						rowsCount++;
-						if (rowsCount % BATCH_SIZE == 0) {
-							statement.executeBatch();
+					} else {
+						while (rowIterator.hasNext()) {
+							Row nextRow = rowIterator.next();
+							if (nextRow.getCell(0) == null)
+								break;
+							
+							transaction = new Transaction(nextRow, false);
+							transaction.setStatements(statement);
+							
+							statement.addBatch();
+							rowsCount++;
+							if (rowsCount % BATCH_SIZE == 0) {
+								statement.executeBatch();
+							}
+							System.out.println("Sheet: " + workbookSheet + " - store: " + storesCount + "/" + totalStores + " - " + storeFile.getName() + " - "
+									+ (rowsCount * 100) / totalRows + "% - row: " + rowsCount);
 						}
-						System.out.println(storesCount + "/" + totalStores + " - " + storeFile.getName() + " - "
-								+ (rowsCount * 100) / totalRows + "% - row: " + rowsCount);
 					}
+					inputStream.close();
+					statement.executeBatch();
+					conn.commit();
 				}
-				inputStream.close();
+				
+				// execute the remaining queries
 				statement.executeBatch();
 				conn.commit();
+				
+				// let's run the next sheet
+				workbookSheet++;
 			}
-
-			// execute the remaining queries
-			statement.executeBatch();
-			conn.commit();
 
 			long end = System.currentTimeMillis();
 			System.out.printf("\nIMPORT DONE in %d ms\n", (end - start));
 
-		} catch (IOException ex1) {
-			System.out.println("Error reading file");
-			ex1.printStackTrace();
-		} catch (SQLException ex2) {
-			System.out.println("Database error");
-			ex2.printStackTrace();
+		} catch (IOException | SQLException e) {
+			e.printStackTrace();
 		}
 	}
 
 	private static void loadProductStructureFile() {
-		String productFile = props.get("data.product-structure")
-				+ "/PRODUCT STRUCTURE FOR TRANSACTIONAL ANALYSIS V2.xlsx";
+		long start = System.currentTimeMillis();
+		
+		String productsPath = props.get("data.product-structure");
+		File[] productFiles = new File(productsPath).listFiles();
+		int totalproductFiles = productFiles.length;
 
-		try (Connection conn = getConnection(); InputStream inputStream = new FileInputStream(new File(productFile));) {
-			long start = System.currentTimeMillis();
+		try (Connection conn = getConnection()) {
 			conn.setAutoCommit(false);
-
-			Workbook workbook = StreamingReader.builder().rowCacheSize(100).bufferSize(4096).open(inputStream);
-
+			
 			String sql = "INSERT INTO product "
 					+ "(material, material_desc, sub_class, sub_class_desc, class, class_desc, cat, cat_desc, macro, shopping_mission) "
 					+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 			PreparedStatement statement = conn.prepareStatement(sql);
 			statement.setFetchSize(Integer.MIN_VALUE);
-
-			Iterator<Row> rowIterator = workbook.getSheetAt(0).iterator();
-			rowIterator.next(); // skip the header row
-			int count = 0;
-			int totalRows = workbook.getSheetAt(0).getLastRowNum();
-			Product product;
-
-			while (rowIterator.hasNext()) {
-				Row nextRow = rowIterator.next();
-				if (nextRow.getCell(0) == null)
-					break;
-
-				product = new Product(nextRow);
-				product.setStatements(statement);
-
-				statement.addBatch();
-				count++;
-				if (count % BATCH_SIZE == 0) {
-					statement.executeBatch();
+			InputStream inputStream;
+			int productFileCount = 0;
+			
+			for (File productFile : productFiles) {
+				System.out.println("**********************************************************");
+				System.out.println("Reading file: " + productFile.getName());
+				System.out.println("**********************************************************");
+				
+				inputStream = new FileInputStream(productFile);
+				Workbook workbook = StreamingReader.builder().rowCacheSize(100).bufferSize(4096).open(inputStream);
+				
+				Iterator<Row> rowIterator = workbook.getSheetAt(0).iterator();
+				rowIterator.next(); // skip the header row
+				
+				productFileCount++;
+				int rowsCount = 1;
+				int totalRows = workbook.getSheetAt(0).getLastRowNum();
+				Product product;
+				
+				while (rowIterator.hasNext()) {
+					Row nextRow = rowIterator.next();
+					if (nextRow.getCell(0) == null) {
+						System.out.println("ERROR IN ROW " + rowsCount + " cell 0!");
+						break;
+					}
+					
+					product = new Product(nextRow);
+					product.setStatements(statement);
+					
+					statement.addBatch();
+					rowsCount++;
+					if (rowsCount % BATCH_SIZE == 0) {
+						statement.executeBatch();
+					}
+					System.out.println("File: " + productFileCount + "/" + totalproductFiles +  " - " + productFile.getName() + " - "
+							+ (rowsCount * 100) / totalRows + "% - row: " + rowsCount);
 				}
-				System.out.println((count * 100) / totalRows + "% - row: " + count);
+				
+				// execute the remaining queries
+				statement.executeBatch();
+				conn.commit();
 			}
 
-			// execute the remaining queries
-			statement.executeBatch();
-			conn.commit();
 
 			long end = System.currentTimeMillis();
 			System.out.printf("\nIMPORT DONE in %d ms\n", (end - start));
