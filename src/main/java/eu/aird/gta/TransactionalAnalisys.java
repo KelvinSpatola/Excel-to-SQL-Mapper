@@ -30,12 +30,9 @@ import eu.aird.gta.model.Product;
 import eu.aird.gta.model.Transaction;
 import eu.aird.gta.util.GTAProperties;
 
-public class GTA {
+public class TransactionalAnalisys {
 	private static final GTAProperties props = GTAProperties.getInstance();
 	private static int BATCH_SIZE = 350;
-//	List<String> header = List.of("Nº Ticket", "Posição", "Desc Posição", "Data", "Hora", "Nº Caixa",
-//			"Nome Caixa", "Meio Pag", "Desc Meio Pag", "Material", "Desc Material", "Categoria",
-//			"Desc Categoria", "Unid", "Valor");
 
 	public static Connection getConnection() throws SQLException {
 		Properties connectionProps = new Properties();
@@ -43,7 +40,7 @@ public class GTA {
 		connectionProps.put("password", "admin123");
 		// mysql database
 		Connection conn = DriverManager.getConnection(
-				"jdbc:mysql://localhost/at_galp?useSSL=false&createDatabaseIfNotExist=true", connectionProps);
+				"jdbc:mysql://localhost/at_oncost?useSSL=false&createDatabaseIfNotExist=true", connectionProps);
 		return (conn);
 	}
 
@@ -76,14 +73,6 @@ public class GTA {
 				break;
 			case 3:
 //				returnNonExistingTransactionalProducts();
-				break;
-			case 4:
-				String storesPath = props.get("data.product-structure")
-						+ "/PRODUCT STRUCTURE FOR TRANSACTIONAL ANALYSIS V2.xlsx";
-				File f = new File(storesPath);
-				System.out.println(f);
-				System.out.println(f.exists());
-
 				break;
 			}
 		}
@@ -179,18 +168,20 @@ public class GTA {
 				workbookSheet++;
 			}
 
-			long end = System.currentTimeMillis();
-			System.out.printf("\nIMPORT DONE in %d ms\n", (end - start));
+			printExecutionTime(start);
 
 		} catch (IOException | SQLException e) {
 			e.printStackTrace();
 		}
 	}
+	
+	
 
 	private static void loadProductStructureFile() {
 		long start = System.currentTimeMillis();
 		
 		String productsPath = props.get("data.product-structure");
+		System.out.println("path: " + productsPath);
 		File[] productFiles = new File(productsPath).listFiles();
 		int totalproductFiles = productFiles.length;
 
@@ -198,8 +189,8 @@ public class GTA {
 			conn.setAutoCommit(false);
 			
 			String sql = "INSERT INTO product "
-					+ "(material, material_desc, sub_class, sub_class_desc, class, class_desc, cat, cat_desc, macro, shopping_mission) "
-					+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+					+ "(sku, sku_desc, sub_cat, cat, macro) "
+					+ "VALUES (?, ?, ?, ?, ?)";
 			PreparedStatement statement = conn.prepareStatement(sql);
 			statement.setFetchSize(Integer.MIN_VALUE);
 			InputStream inputStream;
@@ -245,9 +236,7 @@ public class GTA {
 				conn.commit();
 			}
 
-
-			long end = System.currentTimeMillis();
-			System.out.printf("\nIMPORT DONE in %d ms\n", (end - start));
+			printExecutionTime(start);
 
 		} catch (IOException ex1) {
 			System.out.println("Error reading file");
@@ -412,6 +401,15 @@ public class GTA {
 		}
 	}
 	
+	private static void printExecutionTime(long startTime) {
+	    long end = System.currentTimeMillis();
+	    long time = (end - startTime) / 1000;
+	    long ss = time % 60;
+	    long mm = (time / 60) % 60;
+	    long hh = time / 3600;
+	    System.out.printf("\nIMPORT DONE in %02d.%02d.%02d ms\n", hh, mm, ss);
+	}
+	
 	static class SKUCounter {
 		public Map<String, Integer> map = new HashMap<>();
 //		public String materialDesc;
@@ -431,9 +429,4 @@ public class GTA {
 			this.count++;
 		}
 	}
-
-//	private static String getColumnName(Sheet sheet, Cell cell) {
-//		return sheet.getRow(sheet.getFirstRowNum()).getCell(cell.getColumnIndex()).getStringCellValue();
-//	}
-
 }
