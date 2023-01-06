@@ -2,28 +2,27 @@ package eu.aird.gta;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.Iterator;
+import java.util.HashSet;
 import java.util.Properties;
 
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.FormulaError;
 import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.util.IOUtils;
 
 import com.monitorjbl.xlsx.StreamingReader;
 
-import eu.aird.gta.model.Product;
-import eu.aird.gta.model.Transaction;
+import eu.aird.gta.model.ExcelToSqlMapper;
+import eu.aird.gta.model.ExcelToSqlMapper.ColumnType;
 import eu.aird.gta.util.GTAProperties;
 
 public class TransactionalAnalisys {
 	private static final GTAProperties props = GTAProperties.getInstance();
-	private static int BATCH_SIZE = 350;
+	private static int BATCH_SIZE = 100;
 
 	public static Connection getConnection() throws SQLException {
 		Properties connectionProps = new Properties();
@@ -31,14 +30,15 @@ public class TransactionalAnalisys {
 		connectionProps.put("password", "admin123");
 		// mysql database
 		Connection conn = DriverManager.getConnection(
-				"jdbc:mysql://localhost/at_makani?useSSL=false&createDatabaseIfNotExist=true", connectionProps);
+				"jdbc:mysql://localhost/transactional_mapper_test?useSSL=false&createDatabaseIfNotExist=true",
+				connectionProps);
+//				"jdbc:mysql://localhost/at_makani?useSSL=false&createDatabaseIfNotExist=true", connectionProps);
 		return (conn);
 	}
 
 	public static void main(String[] args) {
 		IOUtils.setByteArrayMaxOverride(Integer.MAX_VALUE - 8);
 
-//		loadProductStructureFile();
 		loadTransactionalFiles();
 
 		System.out.println("Quiting...");
@@ -49,18 +49,43 @@ public class TransactionalAnalisys {
 		long start = System.currentTimeMillis();
 
 //		File[] storeFiles = new File(props.get("data.ways-of-payment")).listFiles();
-		File[] transactionalFiles = new File(props.get("data.stores")).listFiles();
+		File[] allFiles = new File(props.get("data.stores")).listFiles();
+//		File[] allFiles = new File(props.get("data.product-structure")).listFiles();
 
 		try (Connection conn = getConnection()) {
 			conn.setAutoCommit(false);
 
-			var sql = "INSERT INTO transactions"
-					+ " (ticket, store, store_desc, date, time, sku, sku_desc, value, quantity, total_value)"
-					+ " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-			PreparedStatement statement = conn.prepareStatement(sql);
+			var mapper = new ExcelToSqlMapper();
+			mapper.insertInto("transactions")
+					.column("ticket", ColumnType.VARCHAR)
+					.column("store", ColumnType.INT)
+					.column("store_desc", ColumnType.VARCHAR)
+					.column("date", ColumnType.DATE)
+					.column("time", ColumnType.VARCHAR)
+					.column("sku", ColumnType.INT)
+					.column("sku_desc", ColumnType.VARCHAR)
+					.column("value", ColumnType.DOUBLE)
+					.column("quantity", ColumnType.DOUBLE)
+					.column("total_value", ColumnType.DOUBLE)
+					.buildStatement();
+//			mapper.insertInto("product")
+//					.column("sku", ColumnType.INT)
+//					.column("sku_desc", ColumnType.VARCHAR)
+//					.column("sub_cat", ColumnType.VARCHAR)
+//					.column("cat", ColumnType.VARCHAR)
+//					.column("macro", ColumnType.VARCHAR)
+//					.column("pack_size", ColumnType.VARCHAR)
+//					.column("activation_date", ColumnType.DATE)
+//					.column("disactivation_date", ColumnType.DATE, true)
+//					.buildStatement();
+
+			PreparedStatement statement = conn.prepareStatement(mapper.getSqlStatement());
 			statement.setFetchSize(Integer.MIN_VALUE);
 
-			for (var file : transactionalFiles) {
+			for (var file : allFiles) {
+				if (file.isHidden()) {
+					continue;
+				}
 				System.out.println("**********************************************************");
 				System.out.println("Reading file: " + file.getName());
 				System.out.println("**********************************************************");
@@ -70,118 +95,72 @@ public class TransactionalAnalisys {
 				var sheetItr = workbook.sheetIterator();
 				var sheetCount = workbook.getNumberOfSheets();
 				var sheetIndex = 1;
-				
+
 				while (sheetItr.hasNext()) {
 					var sheet = sheetItr.next();
 					var rowItr = sheet.iterator();
 					var lastRow = sheet.getLastRowNum();
 					var rowIndex = 1; // 1 - header
-					rowItr.next(); // skip the header row
-					
-					Transaction transaction;
-					while (rowItr.hasNext()) {
-						var row = rowItr.next();
-						if (row.getCell(0) == null) {
-							System.err.println("ERROR IN ROW " + rowIndex + ", cell 0!");
-							break;
-						}
+					var row = rowItr.next(); // skip the header row
 
-						transaction = new Transaction(row);
-						transaction.setStatements(statement);
-
+					while (rowItr.hasNext() && !isRowEmpty(row)) {
+						row = rowItr.next();
+						mapper.setValues(row, statement);
 						statement.addBatch();
+
 						rowIndex++;
 						if (rowIndex % BATCH_SIZE == 0) {
 							statement.executeBatch();
 						}
-						System.out.println("Sheet: " + sheetIndex + "/" + sheetCount + " | row: " + rowIndex + " - " + (rowIndex * 100) / lastRow + "%");
+						System.out.println("Sheet: " + sheetIndex + "/" + sheetCount + " | row: " + rowIndex + " - "
+								+ (rowIndex * 100) / lastRow + "%");
+//						printRow(row);
 					}
 					inputStream.close();
 					statement.executeBatch();
 					conn.commit();
 					sheetIndex++;
 				}
-
 				// execute the remaining queries
 				statement.executeBatch();
 				conn.commit();
 			}
-
 			printExecutionTime(start);
 
-		} catch (IOException | SQLException e) {
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
 
-	public static void loadProductStructureFile() {
-		long start = System.currentTimeMillis();
-
-		String productsPath = props.get("data.product-structure");
-		System.out.println("path: " + productsPath);
-		File[] productFiles = new File(productsPath).listFiles();
-		int totalproductFiles = productFiles.length;
-
-		try (Connection conn = getConnection()) {
-			conn.setAutoCommit(false);
-
-			String sql = "INSERT INTO product "
-					+ "(sku, sku_desc, sub_cat, cat, macro, pack_size, activation_date, disactivation_date) "
-					+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-			PreparedStatement statement = conn.prepareStatement(sql);
-			statement.setFetchSize(Integer.MIN_VALUE);
-			InputStream inputStream;
-			int productFileCount = 0;
-
-			for (File productFile : productFiles) {
-				System.out.println("**********************************************************");
-				System.out.println("Reading file: " + productFile.getName());
-				System.out.println("**********************************************************");
-
-				inputStream = new FileInputStream(productFile);
-				Workbook workbook = StreamingReader.builder().rowCacheSize(100).bufferSize(4096).open(inputStream);
-
-				Iterator<Row> rowIterator = workbook.getSheetAt(0).iterator();
-				rowIterator.next(); // skip the header row
-
-				productFileCount++;
-				int rowsCount = 1;
-				int totalRows = workbook.getSheetAt(0).getLastRowNum();
-				Product product;
-
-				while (rowIterator.hasNext()) {
-					Row nextRow = rowIterator.next();
-					if (nextRow.getCell(0) == null) {
-						System.err.println("ERROR IN ROW " + rowsCount + " cell 0!");
-						break;
-					}
-
-					product = new Product(nextRow);
-					product.setStatements(statement);
-
-					statement.addBatch();
-					rowsCount++;
-					if (rowsCount % BATCH_SIZE == 0) {
-						statement.executeBatch();
-					}
-					System.out.println("File: " + productFileCount + "/" + totalproductFiles + " - "
-							+ productFile.getName() + " - " + (rowsCount * 100) / totalRows + "% - row: " + rowsCount);
-				}
-
-				// execute the remaining queries
-				statement.executeBatch();
-				conn.commit();
-			}
-
-			printExecutionTime(start);
-
-		} catch (IOException ex1) {
-			System.out.println("Error reading file");
-			ex1.printStackTrace();
-		} catch (SQLException ex2) {
-			System.out.println("Database error");
-			ex2.printStackTrace();
+	private static boolean isRowEmpty(Row row) {
+		if (row == null || row.getCell(0) == null) {
+			return true;
 		}
+		return false;
+	}
+
+	private static void printRow(Row row) {
+		StringBuilder sb = new StringBuilder("Row: ");
+		sb.append(row.getRowNum() + 1); // plus 1 (header)
+		for (var cell : row) {
+			switch (cell.getCellType()) {
+			case BOOLEAN -> sb.append(" | " + (cell.getBooleanCellValue() ? "TRUE" : "FALSE"));
+			case NUMERIC -> {
+				if (DateUtil.isCellDateFormatted(cell)) {
+					sb.append(" | " + cell.getDateCellValue());
+				} else {
+					sb.append(" | " + cell.getNumericCellValue());
+				}
+			}
+			case STRING -> sb.append(" | " + cell.getRichStringCellValue().getString());
+			case BLANK -> sb.append(" | BLANK");
+			case ERROR -> sb.append(" | " + FormulaError.forInt(cell.getErrorCellValue()).getString());
+			case FORMULA -> sb.append(" | " + cell.getCellFormula());
+			case _NONE -> sb.append(" | " + cell.getDateCellValue());
+			default -> throw new IllegalArgumentException("Unexpected value: " + cell.getCellType());
+			}
+		}
+		System.out.println(sb.toString());
 	}
 
 	private static void printExecutionTime(long startTime) {
