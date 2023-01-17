@@ -14,16 +14,16 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-		<java.version>11</java.version>
+		<java.version>17</java.version>
 		<maven.compiler.source>${java.version}</maven.compiler.source>
 		<maven.compiler.target>${java.version}</maven.compiler.target>
-		<log4j2.version>2.16.0</log4j2.version>
-		
-	    <project.resources>${basedir}/src/main/resources</project.resources>
-	    <data.output>${project.resources}/data/output</data.output>
-	    <data.product-structure>${project.resources}/data/source-data/Galp/product-structure</data.product-structure>
-	    <data.ways-of-payment>${project.resources}/data/source-data/Galp/ways-of-payment</data.ways-of-payment>
-	    <data.stores>${gta.resources}/data/source-data/Galp/stores</data.stores>
+
+		<project.resources>${basedir}/src/main/resources</project.resources>
+		<project.output>${project.resources}/data/output</project.output>
+		<project.client>${project.resources}/data/source-data/Makani</project.client>
+		<data.product-structure>${project.client}/product-structure</data.product-structure>
+		<data.ways-of-payment>${project.client}/ways-of-payment</data.ways-of-payment>
+		<data.stores>${project.client}/stores</data.stores>
 	</properties>
 
 	<dependencies>
@@ -46,29 +46,35 @@
 		</dependency>
 
 		<dependency>
-			<groupId>org.apache.logging.log4j</groupId>
-			<artifactId>log4j-core</artifactId>
-			<version>2.19.0</version>
-		</dependency>
-
-		<dependency>
 			<groupId>com.monitorjbl</groupId>
 			<artifactId>xlsx-streamer</artifactId>
 			<version>2.2.0</version>
 		</dependency>
 
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-log4j12</artifactId>
+			<version>1.7.6</version>
+		</dependency>
+		
+		<dependency>
+			<groupId>log4j</groupId>
+			<artifactId>log4j</artifactId>
+			<version>1.2.17</version>
+		</dependency>
+
 	</dependencies>
-	
+
 	<build>
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>true</filtering>
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+				<filtering>true</filtering>
 				<includes>
 					<include>gta.properties</include>
 				</includes>
-            </resource>
-        </resources>
-    </build>
+			</resource>
+		</resources>
+	</build>
 
 </project>
