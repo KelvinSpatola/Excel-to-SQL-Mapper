@@ -6,7 +6,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.HashSet;
 import java.util.Properties;
 
 import org.apache.poi.ss.usermodel.DateUtil;
@@ -22,7 +21,7 @@ import eu.aird.gta.util.GTAProperties;
 
 public class TransactionalAnalisys {
 	private static final GTAProperties props = GTAProperties.getInstance();
-	private static int BATCH_SIZE = 100;
+	private static int BATCH_SIZE = 750;
 
 	public static Connection getConnection() throws SQLException {
 		Properties connectionProps = new Properties();
@@ -30,23 +29,13 @@ public class TransactionalAnalisys {
 		connectionProps.put("password", "admin123");
 		// mysql database
 		Connection conn = DriverManager.getConnection(
-				"jdbc:mysql://localhost/transactional_mapper_test?useSSL=false&createDatabaseIfNotExist=true",
-				connectionProps);
-//				"jdbc:mysql://localhost/at_makani?useSSL=false&createDatabaseIfNotExist=true", connectionProps);
+				"jdbc:mysql://localhost/transactional_mapper_test?useSSL=false&createDatabaseIfNotExist=true", connectionProps);
 		return (conn);
 	}
 
 	public static void main(String[] args) {
-		IOUtils.setByteArrayMaxOverride(Integer.MAX_VALUE - 8);
-
-		loadTransactionalFiles();
-
-		System.out.println("Quiting...");
-		System.exit(0);
-	}
-
-	public static void loadTransactionalFiles() {
 		long start = System.currentTimeMillis();
+		IOUtils.setByteArrayMaxOverride(Integer.MAX_VALUE - 8);
 
 //		File[] storeFiles = new File(props.get("data.ways-of-payment")).listFiles();
 		File[] allFiles = new File(props.get("data.stores")).listFiles();
@@ -84,7 +73,7 @@ public class TransactionalAnalisys {
 
 			for (var file : allFiles) {
 				if (file.isHidden()) {
-					continue;
+					continue; // Skip temporary files 
 				}
 				System.out.println("**********************************************************");
 				System.out.println("Reading file: " + file.getName());
@@ -124,12 +113,16 @@ public class TransactionalAnalisys {
 				// execute the remaining queries
 				statement.executeBatch();
 				conn.commit();
+				System.out.println();
 			}
 			printExecutionTime(start);
 
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
+
+		System.out.println("Quiting...");
+		System.exit(0);
 	}
 
 	private static boolean isRowEmpty(Row row) {
