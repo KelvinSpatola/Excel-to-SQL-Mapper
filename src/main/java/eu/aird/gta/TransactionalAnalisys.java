@@ -21,7 +21,7 @@ import eu.aird.gta.util.GTAProperties;
 
 public class TransactionalAnalisys {
 	private static final GTAProperties props = GTAProperties.getInstance();
-	private static int BATCH_SIZE = 750;
+	private static int BATCH_SIZE = 10;
 
 	public static Connection getConnection() throws SQLException {
 		Properties connectionProps = new Properties();
@@ -38,39 +38,39 @@ public class TransactionalAnalisys {
 		IOUtils.setByteArrayMaxOverride(Integer.MAX_VALUE - 8);
 
 //		File[] storeFiles = new File(props.get("data.ways-of-payment")).listFiles();
-		File[] allFiles = new File(props.get("data.stores")).listFiles();
-//		File[] allFiles = new File(props.get("data.product-structure")).listFiles();
+//		File[] allFiles = new File(props.get("data.stores")).listFiles();
+		File[] allFiles = new File(props.get("data.product-structure")).listFiles();
 
 		try (Connection conn = getConnection()) {
 			conn.setAutoCommit(false);
 
-			var mapper = new ExcelToSqlMapper();
-			mapper.insertInto("transactions")
-					.column("ticket", ColumnType.VARCHAR)
-					.column("store", ColumnType.INT)
-					.column("store_desc", ColumnType.VARCHAR)
-					.column("date", ColumnType.DATE)
-					.column("time", ColumnType.VARCHAR)
-					.column("sku", ColumnType.INT)
-					.column("sku_desc", ColumnType.VARCHAR)
-					.column("value", ColumnType.DOUBLE)
-					.column("quantity", ColumnType.DOUBLE)
-					.column("total_value", ColumnType.DOUBLE)
-					.buildStatement();
-//			mapper.insertInto("product")
+			var mapper = new ExcelToSqlMapper(conn);
+//			mapper.insertInto("transactions")
+//					.column("ticket", ColumnType.VARCHAR)
+//					.column("store", ColumnType.INT)
+//					.column("store_desc", ColumnType.VARCHAR)
+//					.column("date", ColumnType.DATE)
+//					.column("time", ColumnType.VARCHAR)
 //					.column("sku", ColumnType.INT)
 //					.column("sku_desc", ColumnType.VARCHAR)
-//					.column("sub_cat", ColumnType.VARCHAR)
-//					.column("cat", ColumnType.VARCHAR)
-//					.column("macro", ColumnType.VARCHAR)
-//					.column("pack_size", ColumnType.VARCHAR)
-//					.column("activation_date", ColumnType.DATE)
-//					.column("disactivation_date", ColumnType.DATE, true)
+//					.column("value", ColumnType.DOUBLE)
+//					.column("quantity", ColumnType.DOUBLE)
+//					.column("total_value", ColumnType.DOUBLE)
 //					.buildStatement();
+			mapper.insertInto("product")
+					.column("sku", ColumnType.PRIMARY_KEY)
+					.column("sku_desc", ColumnType.VARCHAR)
+					.column("sub_cat", ColumnType.VARCHAR)
+					.column("cat", ColumnType.VARCHAR)
+					.column("macro", ColumnType.VARCHAR)
+					.column("pack_size", ColumnType.VARCHAR)
+					.column("activation_date", ColumnType.DATE)
+					.column("disactivation_date", ColumnType.DATE)
+					.buildStatement();
 
 			PreparedStatement statement = conn.prepareStatement(mapper.getSqlStatement());
 			statement.setFetchSize(Integer.MIN_VALUE);
-
+			
 			for (var file : allFiles) {
 				if (file.isHidden()) {
 					continue; // Skip temporary files 
