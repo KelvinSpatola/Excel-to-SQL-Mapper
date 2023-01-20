@@ -2,9 +2,9 @@
 
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>eu.air-d</groupId>
-	<artifactId>galp-transactional-analysis</artifactId>
+	<artifactId>excel-to-sql-mapper</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>Galp Transactional Analysis</name>
+	<name>Excel to SQL Mapper</name>
 
 	<organization>
 		<name>Air-D</name>
@@ -19,11 +19,10 @@
 		<maven.compiler.target>${java.version}</maven.compiler.target>
 
 		<project.resources>${basedir}/src/main/resources</project.resources>
-		<project.output>${project.resources}/data/output</project.output>
-		<project.client>${project.resources}/data/source-data/Makani</project.client>
-		<data.product-structure>${project.client}/product-structure</data.product-structure>
-		<data.ways-of-payment>${project.client}/ways-of-payment</data.ways-of-payment>
-		<data.stores>${project.client}/stores</data.stores>
+		<project.data>${project.resources}/data</project.data>
+		<data.product-hierarchy>${project.data}/product-hierarchy</data.product-hierarchy>
+		<data.transactional-data>${project.data}/transactional-data</data.transactional-data>
+		<data.ways-of-payment>${project.data}/ways-of-payment</data.ways-of-payment>
 	</properties>
 
 	<dependencies>
@@ -31,12 +30,6 @@
 			<groupId>mysql</groupId>
 			<artifactId>mysql-connector-java</artifactId>
 			<version>8.0.30</version>
-		</dependency>
-
-		<dependency>
-			<groupId>com.opencsv</groupId>
-			<artifactId>opencsv</artifactId>
-			<version>5.7.0</version>
 		</dependency>
 
 		<dependency>

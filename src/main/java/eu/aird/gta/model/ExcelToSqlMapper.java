@@ -11,15 +11,44 @@ import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.Row;
 
+/**
+*
+* @author Kelvin Spátola
+*/
 public class ExcelToSqlMapper {
-	static private final Map<String, ColumnType> params = new LinkedHashMap<>();
-	static private Connection conn;
+	private final Map<String, ColumnType> params = new LinkedHashMap<>();
+	private final Map<String, ColumnConstraint> constraints = new LinkedHashMap<>();
 	private StringBuilder insertStatement;
 	private String tableName;
 	private int columnCount;
+	static private Connection conn;
 
 	public enum ColumnType {
-		BOOLEAN, VARCHAR, INT, DOUBLE, DATE, TIME, PRIMARY_KEY
+		BOOLEAN("BOOLEAN"), VARCHAR("VARCHAR(100)"), INT("INT"), DOUBLE("DOUBLE"), DATE("DATE"), TIME("TIME");
+
+		private final String value;
+
+		ColumnType(String value) {
+			this.value = value;
+		}
+
+		public String getValue() {
+			return value;
+		}
+	}
+
+	public enum ColumnConstraint {
+		NOT_NULL("NOT NULL"), NULLABLE(""), PRIMARY_KEY("NOT NULL"), UNIQUE("UNIQUE"); // DEFAULT, CHECK
+
+		private final String value;
+
+		ColumnConstraint(String value) {
+			this.value = value;
+		}
+
+		private String getValue() {
+			return " " + value;
+		}
 	}
 
 	// CONSTRUCTOR
@@ -27,13 +56,27 @@ public class ExcelToSqlMapper {
 		ExcelToSqlMapper.conn = connection;
 	}
 
-	public ExcelToSqlMapper insertInto(String tableName) {
+	public ExcelToSqlMapper mapTable(String tableName) {
 		this.tableName = tableName;
 		return this;
 	}
 
 	public ExcelToSqlMapper column(String param, ColumnType type) {
+		return column(param, type, ColumnConstraint.NOT_NULL);
+	}
+
+	public ExcelToSqlMapper column(String param, ColumnType type, ColumnConstraint constraint) {
+		if (param.isBlank()) {
+			throw new IllegalArgumentException("Column name cannot be blank");
+		}
+		if (params.containsKey(param)) {
+			throw new IllegalArgumentException("Duplicate column name: " + param);
+		}
+		if (constraint == ColumnConstraint.PRIMARY_KEY && constraints.containsValue(constraint)) {
+			throw new IllegalArgumentException("Cannot assign two primary keys");
+		}
 		params.put(param, type);
+		constraints.put(param, constraint);
 		columnCount++;
 		return this;
 	}
@@ -45,13 +88,13 @@ public class ExcelToSqlMapper {
 		if (params.isEmpty()) {
 			throw new IllegalStateException("You need to set the columns.");
 		}
-		
+
 		createTableIfNotExists();
-		
+
 		insertStatement = new StringBuilder("INSERT INTO ").append(tableName + " (");
 		var columnNames = params.keySet();
-		var first = true;		
-	
+		var first = true;
+
 		for (var name : columnNames) {
 			if (first) {
 				first = false;
@@ -63,39 +106,40 @@ public class ExcelToSqlMapper {
 		insertStatement.append(") VALUES (?").append(new String(new char[columnCount - 1]).replace("\0", ", ?"))
 				.append(")");
 	}
-	
+
 	private void createTableIfNotExists() throws SQLException {
-		var columnNames = params.keySet().stream().collect(Collectors.toList());
 		var createTableStatement = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName + " (");
+		var columnNames = params.keySet().stream().collect(Collectors.toList());
 		
-		if (!params.values().contains(ColumnType.PRIMARY_KEY)) {
+		var isDefaultPK = false;
+		if (!constraints.values().contains(ColumnConstraint.PRIMARY_KEY)) {
 			columnNames.add(0, "id");
-			params.put("id", ColumnType.PRIMARY_KEY);
-			System.out.println("Creating id column for PK");
+			params.put("id", ColumnType.INT);
+			constraints.put("id", ColumnConstraint.PRIMARY_KEY);
+			isDefaultPK =  true;
+			System.out.println("Creating a default 'id' column for PK");
 		}
-		
+
 		var first = true;
 		String pk = null;
+
 		for (var column : columnNames) {
-			var suffix = switch (params.get(column)) {
-			case PRIMARY_KEY -> {
+			var type = params.get(column).getValue();
+			var constraint = constraints.get(column).getValue();
+
+			if (constraints.get(column) == ColumnConstraint.PRIMARY_KEY) {
 				pk = column;
-				yield "BIGINT NOT NULL AUTO_INCREMENT";
+				if (isDefaultPK)					
+					constraint += " AUTO_INCREMENT";
 			}
-			case BOOLEAN -> "BOOLEAN NOT NULL";
-			case DATE -> "DATE NOT NULL";
-			case DOUBLE -> "DOUBLE NOT NULL";
-			case INT -> "INT NOT NULL";
-			case TIME -> "TIME NOT NULL";
-			case VARCHAR -> "VARCHAR(100) NOT NULL";
-			};
 
 			if (first) {
 				first = false;
-				createTableStatement.append("`" + column + "` ").append(suffix);
+				createTableStatement.append("`" + column + "` ").append(type).append(constraint);
 			} else {
-				createTableStatement.append(", `" + column + "` ").append(suffix);
+				createTableStatement.append(", `" + column + "` ").append(type).append(constraint);
 			}
+
 		}
 		createTableStatement.append(", PRIMARY KEY (`" + pk + "`)")
 				.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;");
@@ -105,9 +149,8 @@ public class ExcelToSqlMapper {
 	}
 
 	public String getSqlStatement() {
-		return Objects
-				.requireNonNull(insertStatement, "You need to build an sql statement first. Call method buildStatement().")
-				.toString();
+		return Objects.requireNonNull(insertStatement,
+				"You need to build the statement first. Call method buildStatement().").toString();
 	}
 
 	public void setValues(Row row, PreparedStatement statement) throws SQLException {
@@ -119,9 +162,12 @@ public class ExcelToSqlMapper {
 			var cell = row.getCell(i);
 			var columnType = params.get(columnSetItr.next());
 			var columnNum = i + 1;
-			
+
 			switch (columnType) {
 			case BOOLEAN -> statement.setBoolean(columnNum, Optional.ofNullable(cell.getBooleanCellValue()).orElseGet(null));
+			case DOUBLE -> statement.setDouble(columnNum, Optional.ofNullable(cell.getNumericCellValue()).orElseGet(null));
+			case INT -> statement.setInt(columnNum, Optional.ofNullable((int) cell.getNumericCellValue()).orElseGet(null));
+			case VARCHAR, TIME -> statement.setString(columnNum, Optional.ofNullable(cell.getStringCellValue()).orElseGet(null));
 			case DATE -> {
 				java.util.Date date = cell.getDateCellValue();
 				if (date == null) {
@@ -130,9 +176,6 @@ public class ExcelToSqlMapper {
 				}
 				statement.setDate(columnNum, new java.sql.Date(date.getTime()));
 			}
-			case DOUBLE -> statement.setDouble(columnNum, Optional.ofNullable(cell.getNumericCellValue()).orElseGet(null));
-			case PRIMARY_KEY, INT -> statement.setInt(columnNum, Optional.ofNullable((int) cell.getNumericCellValue()).orElseGet(null));
-			case VARCHAR, TIME -> statement.setString(columnNum, Optional.ofNullable(cell.getStringCellValue()).orElseGet(null));
 			}
 		}
 	}

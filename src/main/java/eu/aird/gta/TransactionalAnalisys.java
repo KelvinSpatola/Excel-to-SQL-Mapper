@@ -16,9 +16,14 @@ import org.apache.poi.util.IOUtils;
 import com.monitorjbl.xlsx.StreamingReader;
 
 import eu.aird.gta.model.ExcelToSqlMapper;
+import eu.aird.gta.model.ExcelToSqlMapper.ColumnConstraint;
 import eu.aird.gta.model.ExcelToSqlMapper.ColumnType;
 import eu.aird.gta.util.GTAProperties;
 
+/**
+*
+* @author Kelvin Spátola
+*/
 public class TransactionalAnalisys {
 	private static final GTAProperties props = GTAProperties.getInstance();
 	private static int BATCH_SIZE = 10;
@@ -37,15 +42,15 @@ public class TransactionalAnalisys {
 		long start = System.currentTimeMillis();
 		IOUtils.setByteArrayMaxOverride(Integer.MAX_VALUE - 8);
 
-//		File[] storeFiles = new File(props.get("data.ways-of-payment")).listFiles();
-//		File[] allFiles = new File(props.get("data.stores")).listFiles();
-		File[] allFiles = new File(props.get("data.product-structure")).listFiles();
+		File[] allFiles = new File(props.get("data.product-hierarchy")).listFiles();
+//		File[] allFiles = new File(props.get("data.transactional-data")).listFiles();
+//		File[] allFiles = new File(props.get("data.ways-of-payment")).listFiles();
 
 		try (Connection conn = getConnection()) {
 			conn.setAutoCommit(false);
 
-			var mapper = new ExcelToSqlMapper(conn);
-//			mapper.insertInto("transactions")
+			ExcelToSqlMapper mapper = new ExcelToSqlMapper(conn);
+//			mapper.mapTable("transactions")
 //					.column("ticket", ColumnType.VARCHAR)
 //					.column("store", ColumnType.INT)
 //					.column("store_desc", ColumnType.VARCHAR)
@@ -57,17 +62,14 @@ public class TransactionalAnalisys {
 //					.column("quantity", ColumnType.DOUBLE)
 //					.column("total_value", ColumnType.DOUBLE)
 //					.buildStatement();
-			mapper.insertInto("product")
-					.column("sku", ColumnType.PRIMARY_KEY)
+			mapper.mapTable("product")
+					.column("sku", ColumnType.INT, ColumnConstraint.PRIMARY_KEY)
 					.column("sku_desc", ColumnType.VARCHAR)
 					.column("sub_cat", ColumnType.VARCHAR)
 					.column("cat", ColumnType.VARCHAR)
 					.column("macro", ColumnType.VARCHAR)
-					.column("pack_size", ColumnType.VARCHAR)
-					.column("activation_date", ColumnType.DATE)
-					.column("disactivation_date", ColumnType.DATE)
 					.buildStatement();
-
+			
 			PreparedStatement statement = conn.prepareStatement(mapper.getSqlStatement());
 			statement.setFetchSize(Integer.MIN_VALUE);
 			
