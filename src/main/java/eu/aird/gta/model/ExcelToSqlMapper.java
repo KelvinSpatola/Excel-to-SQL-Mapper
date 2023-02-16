@@ -3,12 +3,17 @@ package eu.aird.gta.model;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 
 /**
@@ -21,39 +26,18 @@ public class ExcelToSqlMapper {
 	private StringBuilder insertStatement;
 	private String tableName;
 	private int columnCount;
+	private boolean checkErrors;
 	static private Connection conn;
-
-	public enum ColumnType {
-		BOOLEAN("BOOLEAN"), VARCHAR("VARCHAR(100)"), INT("INT"), DOUBLE("DOUBLE"), DATE("DATE"), TIME("TIME");
-
-		private final String value;
-
-		ColumnType(String value) {
-			this.value = value;
-		}
-
-		public String getValue() {
-			return value;
-		}
-	}
-
-	public enum ColumnConstraint {
-		NOT_NULL("NOT NULL"), NULLABLE(""), PRIMARY_KEY("NOT NULL"), UNIQUE("UNIQUE"); // DEFAULT, CHECK
-
-		private final String value;
-
-		ColumnConstraint(String value) {
-			this.value = value;
-		}
-
-		private String getValue() {
-			return " " + value;
-		}
-	}
 
 	// CONSTRUCTOR
 	public ExcelToSqlMapper(Connection connection) {
+		this(connection, true);
+	}
+	
+	// CONSTRUCTOR
+	public ExcelToSqlMapper(Connection connection, boolean checkErrors) {
 		ExcelToSqlMapper.conn = connection;
+		checkErrors(checkErrors);
 	}
 
 	public ExcelToSqlMapper mapTable(String tableName) {
@@ -65,15 +49,18 @@ public class ExcelToSqlMapper {
 		return column(param, type, ColumnConstraint.NOT_NULL);
 	}
 
-	public ExcelToSqlMapper column(String param, ColumnType type, ColumnConstraint constraint) {
+	public ExcelToSqlMapper column(String param, ColumnType type, ColumnConstraint constraint) {		
+		if (param == null) {
+			throw new NullPointerException("Column name cannot be null");
+		}
 		if (param.isBlank()) {
 			throw new IllegalArgumentException("Column name cannot be blank");
 		}
 		if (params.containsKey(param)) {
-			throw new IllegalArgumentException("Duplicate column name: " + param);
+			throw new IllegalStateException("Duplicate column name: " + param);
 		}
 		if (constraint == ColumnConstraint.PRIMARY_KEY && constraints.containsValue(constraint)) {
-			throw new IllegalArgumentException("Cannot assign two primary keys");
+			throw new IllegalStateException("Cannot assign two primary keys");
 		}
 		params.put(param, type);
 		constraints.put(param, constraint);
@@ -153,31 +140,136 @@ public class ExcelToSqlMapper {
 				"You need to build the statement first. Call method buildStatement().").toString();
 	}
 
-	public void setValues(Row row, PreparedStatement statement) throws SQLException {
+	public void setValues(Row row, PreparedStatement statement) throws InvalidCellValueException, SQLException {
 		Objects.requireNonNull(row, "Row must not be null");
 
 		var columnSetItr = params.keySet().iterator();
 
 		for (int i = 0; i < columnCount; i++) {
-			var cell = row.getCell(i);
-			var columnType = params.get(columnSetItr.next());
+			var columnName = columnSetItr.next();
 			var columnNum = i + 1;
-
-			switch (columnType) {
-			case BOOLEAN -> statement.setBoolean(columnNum, Optional.ofNullable(cell.getBooleanCellValue()).orElseGet(null));
-			case DOUBLE -> statement.setDouble(columnNum, Optional.ofNullable(cell.getNumericCellValue()).orElseGet(null));
-			case INT -> statement.setInt(columnNum, Optional.ofNullable((int) cell.getNumericCellValue()).orElseGet(null));
-			case VARCHAR, TIME -> statement.setString(columnNum, Optional.ofNullable(cell.getStringCellValue()).orElseGet(null));
-			case DATE -> {
-				java.util.Date date = cell.getDateCellValue();
-				if (date == null) {
-					statement.setDate(columnNum, null);
-					break;
+			
+			var cell = row.getCell(i);
+			
+			if (cell == null) {
+				if (constraints.get(columnName) == ColumnConstraint.NOT_NULL) {
+					throw new NullPointerException("You have a null value in your Excel file at line " + (row.getRowNum() + 1) + ", column " + columnNum);
+				}				
+				statement.setNull(columnNum, java.sql.Types.NULL);
+				continue;
+			}
+			
+			var columnType = params.get(columnName);
+			
+			if (checkErrors) {
+				var error = CellErrorChecker.getInvalidCellValue(cell, columnType);		
+				
+				if (error != null) {
+					var message = "Incorrect value '" + error + "' for column '" + columnName 
+							+ "'. Excel location: sheet '" + cell.getSheet().getSheetName() + "', row " + (row.getRowNum() + 1) + ", column " + columnNum;
+					
+					throw new InvalidCellValueException(message, error);
 				}
-				statement.setDate(columnNum, new java.sql.Date(date.getTime()));
 			}
+			
+			switch (columnType) {
+			case BOOLEAN -> statement.setBoolean(columnNum, cell.getBooleanCellValue());
+			case DOUBLE -> statement.setDouble(columnNum, cell.getNumericCellValue());
+			case INT -> statement.setInt(columnNum, (int) cell.getNumericCellValue());
+			case VARCHAR, TIME -> statement.setString(columnNum, cell.getStringCellValue());
+			case DATE -> statement.setObject(columnNum, cell.getLocalDateTimeCellValue().toLocalDate());
 			}
+			
+		}
+	}
+	
+	public void setValues(String[] row, PreparedStatement statement) throws NumberFormatException, SQLException {
+		setValues(row, statement, null);
+	}
+		
+	public void setValues(String[] row, PreparedStatement statement, Set<Integer> skippableColumns) throws NumberFormatException, SQLException {
+		var columnSetIterator = params.keySet().iterator();
+		
+		int columnIndex = 1;
+		for (int i = 0; i < row.length; i++) {
+			if (skippableColumns != null && skippableColumns.contains(i)) {
+				continue;
+			}
+			
+			switch (params.get(columnSetIterator.next())) {
+			case BOOLEAN -> statement.setBoolean(columnIndex, Boolean.parseBoolean(row[i]));
+			case DOUBLE -> statement.setDouble(columnIndex, Double.parseDouble(row[i]));
+			case INT -> statement.setInt(columnIndex, Integer.parseInt(row[i]));
+			case VARCHAR, TIME -> statement.setString(columnIndex, row[i]);
+			case DATE -> statement.setObject(columnIndex, LocalDate.parse(row[i], DateTimeFormatter.ISO_LOCAL_DATE));
+			}
+			columnIndex++;
+		}
+	}
+	
+	public enum ColumnType {
+		BOOLEAN("BOOLEAN"), VARCHAR("VARCHAR(100)"), INT("INT"), DOUBLE("DOUBLE"), DATE("DATE"), TIME("TIME");
+
+		private final String value;
+
+		ColumnType(String value) {
+			this.value = value;
+		}
+
+		public String getValue() {
+			return value;
 		}
 	}
 
+	public enum ColumnConstraint {
+		NOT_NULL("NOT NULL"), NULLABLE(""), PRIMARY_KEY("NOT NULL"), UNIQUE("UNIQUE"); // DEFAULT, CHECK
+
+		private final String value;
+
+		ColumnConstraint(String value) {
+			this.value = value;
+		}
+
+		private String getValue() {
+			return " " + value;
+		}
+	}
+	
+	public void checkErrors(boolean checkErrors) {
+		this.checkErrors = checkErrors;
+	}
+	
+	static class CellErrorChecker {
+		static final Map<ColumnType, Pattern> map = new HashMap<>();
+		static {
+			map.put(ColumnType.BOOLEAN, Pattern.compile("(?i)true|false"));
+			map.put(ColumnType.DATE, Pattern.compile("\\d{4}-\\d{2}-\\d{2}"));
+			map.put(ColumnType.DOUBLE, Pattern.compile("-?\\d+(\\.\\d+)?"));
+			map.put(ColumnType.INT, Pattern.compile("-?\\d+"));
+			map.put(ColumnType.TIME, Pattern.compile("(?:\\d{2}|\\d):\\d{2}:\\d{2}(?:\\sAM|\\sPM)?"));
+		}
+		
+		static String getInvalidCellValue(Cell cell, ColumnType type) {
+			if (type == ColumnType.VARCHAR) {
+				return null;
+			}
+			var strValue = formatCellValue(cell, type);
+			return map.get(type).matcher(strValue).matches() ? null : strValue;
+		}
+		
+		static String formatCellValue(Cell cell, ColumnType type) {
+			try {
+				return switch (type) {
+				case BOOLEAN -> cell.getBooleanCellValue() ? "TRUE" : "FALSE";
+				case DOUBLE -> String.valueOf(cell.getNumericCellValue());
+				case INT -> String.valueOf((int) cell.getNumericCellValue());
+				case VARCHAR, TIME -> cell.getStringCellValue();
+				case DATE -> cell.getLocalDateTimeCellValue().toLocalDate().toString();
+				};
+			} catch (Exception any) {
+				return cell.getStringCellValue();	
+			}
+		}
+	}
+	
 }

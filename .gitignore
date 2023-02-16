@@ -6,6 +6,9 @@ target/
 ## Excel files ##
 **/*.xlsx
 
+## CSV files ##
+**/*.csv
+
 ### Eclipse ###
 .metadata
 bin/
