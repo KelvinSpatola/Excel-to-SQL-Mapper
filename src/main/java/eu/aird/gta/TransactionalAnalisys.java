@@ -7,7 +7,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.stream.Collectors;
@@ -34,7 +33,7 @@ import eu.aird.gta.util.GTAProperties;
  */
 public class TransactionalAnalisys {
     private static final GTAProperties props = GTAProperties.getInstance();
-    private static int BATCH_SIZE = 10000;
+    private static int BATCH_SIZE = 10_000;
 
     public static Connection getConnection() throws SQLException {
         Properties connectionProps = new Properties();
@@ -59,16 +58,16 @@ public class TransactionalAnalisys {
     public static void readFromExcel() {
         IOUtils.setByteArrayMaxOverride(Integer.MAX_VALUE - 8);
 
-        File[] allFiles = new File(props.get("data.product-hierarchy")).listFiles();
-//		File[] allFiles = new File(props.get("data.transactional-data")).listFiles();
-//		File[] allFiles = new File(props.get("data.ways-of-payment")).listFiles();
+		File[] allFiles = new File(props.get("resources.data")).listFiles();
 
         try (Connection conn = getConnection()) {
             conn.setAutoCommit(false);
+            
+            System.out.println("SCHEMA: " + conn.getSchema());
 
             ExcelToSqlMapper mapper = new ExcelToSqlMapper(conn, true);
 
-//			mapper.mapTable("transactions2")
+//			mapper.mapTable("transactions")
 //        			.column("store_code", ColumnType.VARCHAR)
 //        			.column("store_desc", ColumnType.VARCHAR)
 //					.column("date", ColumnType.DATE)
@@ -95,16 +94,16 @@ public class TransactionalAnalisys {
 //					.column("value", ColumnType.DOUBLE)
 //					.buildStatement();
             
-//            mapper.mapTable("product")
-//                    .column("sku", ColumnType.INT, ColumnConstraint.PRIMARY_KEY)
-//                    .column("sku_desc", ColumnType.VARCHAR)
-//                    .column("sub_cat", ColumnType.VARCHAR)
-//                    .column("cat", ColumnType.VARCHAR)
-//                    .column("macro", ColumnType.VARCHAR)
-//                    .column("pack_size", ColumnType.VARCHAR)
-//                    .column("activation_date", ColumnType.DATE)
-//                    .column("deactivation_date", ColumnType.DATE, ColumnConstraint.NULLABLE)
-//                    .buildStatement();
+            mapper.mapTable("product")
+                    .column("sku", ColumnType.INT, ColumnConstraint.PRIMARY_KEY)
+                    .column("sku_desc", ColumnType.VARCHAR)
+                    .column("sub_cat", ColumnType.VARCHAR)
+                    .column("cat", ColumnType.VARCHAR)
+                    .column("macro", ColumnType.VARCHAR)
+                    .column("pack_size", ColumnType.VARCHAR)
+                    .column("activation_date", ColumnType.DATE)
+                    .column("deactivation_date", ColumnType.DATE, ColumnConstraint.NULLABLE)
+                    .buildStatement();
             
             // AUCHAN
 //            mapper.mapTable("pos2")
@@ -115,15 +114,16 @@ public class TransactionalAnalisys {
 //                    .column("pos_type_specific", ColumnType.VARCHAR)
 //                    .buildStatement();
             
-            mapper.mapTable("product")
-                    .column("universe_id", ColumnType.VARCHAR)
-                    .column("universe_desc", ColumnType.VARCHAR)
-                    .column("market_id", ColumnType.VARCHAR)
-                    .column("market_desc", ColumnType.VARCHAR)
-                    .column("cat_id", ColumnType.INT, ColumnConstraint.UNIQUE)
-                    .column("cat_desc", ColumnType.VARCHAR)
-                    .buildStatement();
+//            mapper.mapTable("product")
+//                    .column("universe_id", ColumnType.VARCHAR)
+//                    .column("universe_desc", ColumnType.VARCHAR)
+//                    .column("market_id", ColumnType.VARCHAR)
+//                    .column("market_desc", ColumnType.VARCHAR)
+//                    .column("cat_id", ColumnType.INT, ColumnConstraint.UNIQUE)
+//                    .column("cat_desc", ColumnType.VARCHAR)
+//                    .buildStatement();
 
+            System.out.println(mapper.getSqlStatement());
             PreparedStatement statement = conn.prepareStatement(mapper.getSqlStatement());
             statement.setFetchSize(Integer.MIN_VALUE);
 
@@ -131,10 +131,12 @@ public class TransactionalAnalisys {
                 if (file.isHidden()) {
                     continue; // Skip temporary files
                 }
-//                if (!file.getName().contains("Auchan_unlisted_cats_Respostas Auchan_mod")) {
-//                    System.out.println("Skipping file: " + file.getName());
-//                    continue; // Skip temporary files
-//                }
+                
+                if (!file.getName().contains("Products")) {
+                    System.out.println("Skipping file: " + file.getName());
+                    continue; // Skip unwanted files
+                }
+                
                 System.out.println("**********************************************************");
                 System.out.println("Reading file: " + file.getName());
                 System.out.println("**********************************************************");
@@ -176,7 +178,7 @@ public class TransactionalAnalisys {
                     statement.executeBatch();
                     conn.commit();
                     sheetIndex++;
-                    break;
+//                    break;
                 }
                 // execute the remaining queries
                 statement.executeBatch();
@@ -190,9 +192,9 @@ public class TransactionalAnalisys {
     }
 
     public static void readFromCSV() {
-        List<File> allFiles = Stream.of(new File(props.get("data.transactional-data")).listFiles())
+        List<File> allFiles = Stream.of(new File(props.get("resources.data")).listFiles())
                 .sorted((f1, f2) -> f1.getName().compareTo(f2.getName())).collect(Collectors.toList());
-
+        
         final int allFilesCount = allFiles.size();
 
 //        final List<String> headers = List.of("Nº Ticket", "Posição", "Data", "Hora", "Nº Caixa", "Meio Pag", "Material",

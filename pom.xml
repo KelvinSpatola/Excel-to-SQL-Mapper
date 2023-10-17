@@ -20,9 +20,6 @@
 
 		<project.resources>${basedir}/src/main/resources</project.resources>
 		<project.data>${project.resources}/data</project.data>
-		<data.product-hierarchy>${project.data}/product-hierarchy</data.product-hierarchy>
-		<data.transactional-data>${project.data}/transactional-data</data.transactional-data>
-		<data.ways-of-payment>${project.data}/ways-of-payment</data.ways-of-payment>
 	</properties>
 
 	<dependencies>

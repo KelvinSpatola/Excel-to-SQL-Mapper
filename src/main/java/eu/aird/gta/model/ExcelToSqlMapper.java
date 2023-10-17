@@ -39,6 +39,7 @@ public class ExcelToSqlMapper {
     // CONSTRUCTOR
     public ExcelToSqlMapper(Connection connection, boolean checkErrors) {
         ExcelToSqlMapper.conn = connection;
+        
         checkErrors(checkErrors);
     }
 
