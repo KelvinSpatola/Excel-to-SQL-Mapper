@@ -1,4 +1,4 @@
-package eu.aird.gta.model;
+package com.github.kspatola.mapper;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
+
+import com.github.kspatola.exception.InvalidCellValueException;
 
 /**
  *

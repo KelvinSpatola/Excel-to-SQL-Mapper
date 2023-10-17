@@ -1,4 +1,4 @@
-package eu.aird.gta.util;
+package com.github.kspatola.util;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,7 +7,7 @@ import java.util.Properties;
 public final class GTAProperties {
 	static private GTAProperties instance;
 	static private Properties properties;
-	static private String propertyFileName = "gta.properties";
+	static private String propertyFileName = "app.properties";
 
 	private GTAProperties() {
 		try (InputStream is = getClass().getClassLoader().getResourceAsStream(propertyFileName)) {

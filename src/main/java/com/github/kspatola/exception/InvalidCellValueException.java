@@ -1,4 +1,4 @@
-package eu.aird.gta.model;
+package com.github.kspatola.exception;
 
 public class InvalidCellValueException extends RuntimeException {
 

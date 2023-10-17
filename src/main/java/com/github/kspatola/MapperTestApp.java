@@ -1,4 +1,4 @@
-package eu.aird.gta;
+package com.github.kspatola;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -15,23 +15,22 @@ import java.util.stream.Stream;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.util.IOUtils;
 
-import com.monitorjbl.xlsx.StreamingReader;
+import com.github.kspatola.exception.InvalidCellValueException;
+import com.github.kspatola.mapper.ExcelToSqlMapper;
+import com.github.kspatola.mapper.ExcelToSqlMapper.ColumnConstraint;
+import com.github.kspatola.mapper.ExcelToSqlMapper.ColumnType;
+import com.github.kspatola.util.GTAProperties;
+import com.github.pjfanning.xlsx.StreamingReader;
 import com.opencsv.CSVParser;
 import com.opencsv.CSVParserBuilder;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 
-import eu.aird.gta.model.ExcelToSqlMapper;
-import eu.aird.gta.model.ExcelToSqlMapper.ColumnConstraint;
-import eu.aird.gta.model.ExcelToSqlMapper.ColumnType;
-import eu.aird.gta.model.InvalidCellValueException;
-import eu.aird.gta.util.GTAProperties;
-
 /**
  *
  * @author Kelvin Spátola
  */
-public class TransactionalAnalisys {
+public class MapperTestApp {
     private static final GTAProperties props = GTAProperties.getInstance();
     private static int BATCH_SIZE = 10_000;
 
@@ -62,8 +61,6 @@ public class TransactionalAnalisys {
 
         try (Connection conn = getConnection()) {
             conn.setAutoCommit(false);
-            
-            System.out.println("SCHEMA: " + conn.getSchema());
 
             ExcelToSqlMapper mapper = new ExcelToSqlMapper(conn, true);
 
