@@ -1,164 +1,84 @@
 package com.github.kspatola.mapper;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
 
 import com.github.kspatola.exception.InvalidCellValueException;
+import com.github.kspatola.mapper.rules.ColumnConstraint;
+import com.github.kspatola.mapper.rules.ColumnType;
+import com.github.pjfanning.xlsx.StreamingReader;
 
 /**
  *
  * @author Kelvin Spátola
  */
-public class ExcelToSqlMapper {
-    private final Map<String, ColumnType> params = new LinkedHashMap<>();
-    private final Map<String, ColumnConstraint> constraints = new LinkedHashMap<>();
-    private StringBuilder insertStatement;
-    private String tableName;
-    private int columnCount;
-    private boolean checkErrors;
-    static private Connection conn;
+public class ExcelToSqlMapper extends Mapper {
 
     // CONSTRUCTOR
-    public ExcelToSqlMapper(Connection connection) {
-        this(connection, true);
-    }
-
-    // CONSTRUCTOR
-    public ExcelToSqlMapper(Connection connection, boolean checkErrors) {
-        ExcelToSqlMapper.conn = connection;
-        
-        checkErrors(checkErrors);
-    }
-
-    public ExcelToSqlMapper mapTable(String tableName) {
-        this.tableName = tableName;
-        return this;
-    }
-
-    public ExcelToSqlMapper column(String param, ColumnType type) {
-        return column(param, type, ColumnConstraint.NOT_NULL);
-    }
-
-    public ExcelToSqlMapper column(String param, ColumnType type, ColumnConstraint constraint) {
-        if (param == null) {
-            throw new NullPointerException("Column name cannot be null");
-        }
-        if (param.isBlank()) {
-            throw new IllegalArgumentException("Column name cannot be blank");
-        }
-        if (params.containsKey(param)) {
-            throw new IllegalStateException("Duplicate column name: " + param);
-        }
-        if (constraint == ColumnConstraint.PRIMARY_KEY && constraints.containsValue(constraint)) {
-            throw new IllegalStateException("Cannot assign two primary keys");
-        }
-        params.put(param, type);
-        constraints.put(param, constraint);
-        columnCount++;
-        return this;
-    }
-
-    public void buildStatement() throws SQLException {
-        if (tableName == null || tableName.isBlank()) {
-            throw new IllegalStateException("Missing a table reference. Call method insertInto(String tableName)");
-        }
-        if (params.isEmpty()) {
-            throw new IllegalStateException("You need to set the columns.");
-        }
-
-        createTableIfNotExists();
-
-        insertStatement = new StringBuilder("INSERT INTO ")
-                .append(tableName)
-                .append(" ")
-                .append(placeholders(params.keySet()))
-                .append(" VALUES ")
-                .append(placeholders(null));
-    }
-
-    private void createTableIfNotExists() throws SQLException {
-        List<String> columnNames = params.keySet().stream().collect(Collectors.toList());
-
-        boolean isDefaultPK = false;
-        if (!constraints.values().contains(ColumnConstraint.PRIMARY_KEY)) {
-            columnNames.add(0, "id");
-            params.put("id", ColumnType.INT);
-            constraints.put("id", ColumnConstraint.PRIMARY_KEY);
-            isDefaultPK = true;
-            System.out.println("Creating a default 'id' column for PK");
-        }
-
-        StringBuilder createTableStatement = new StringBuilder("CREATE TABLE IF NOT EXISTS " + tableName + " (");
-        String pk = null;
-        boolean first = true;
-        
-        for (String column : columnNames) {
-            String type = params.get(column).getValue();
-            String constraint = constraints.get(column).getValue();
-
-            if (constraints.get(column) == ColumnConstraint.PRIMARY_KEY) {
-                pk = column;
-                if (isDefaultPK)
-                    constraint += " AUTO_INCREMENT";
-            }
-
-            if (first) {
-                createTableStatement.append("`").append(column).append("` ").append(type).append(constraint);
-                first = false;
-            } else {
-                createTableStatement.append(", `").append(column).append("` ").append(type).append(constraint);
-            }
-
-        }
-        createTableStatement.append(", PRIMARY KEY (`").append(pk).append("`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;");
-        
-        conn.createStatement().execute(createTableStatement.toString());
-        params.remove("id");
+    public ExcelToSqlMapper(Connection connection) throws SQLException {
+        super(connection, true);
     }
     
-    private StringBuilder placeholders(Set<String> columnNames) {
-        StringBuilder result = new StringBuilder("(");
+    public ExcelToSqlMapper(Connection connection, boolean checkErrors) throws SQLException {
+        super(connection, checkErrors);
+    }
+
+    @Override
+    public void readFile(File file) throws InvalidCellValueException, IOException, SQLException {
+        if (statement == null) {
+            throw new IllegalStateException("You need to build the statement first. Call method buildStatement().");
+        }
         
-        if (columnNames == null) {
-            for (int i = 0; i < columnCount - 1; i++) {
-                result.append("?, ");
+        FileInputStream inputStream = new FileInputStream(file);
+        Workbook workbook = StreamingReader.builder().rowCacheSize(500).bufferSize(16384).open(inputStream);
+        Iterator<Sheet> sheetItr = workbook.sheetIterator();
+        int sheetCount = workbook.getNumberOfSheets();
+        int sheetIndex = 1;
+        
+        
+        while (sheetItr.hasNext()) {
+            Sheet sheet = sheetItr.next();
+            Iterator<Row> rowItr = sheet.iterator();
+            int lastRow = sheet.getLastRowNum();
+            int rowIndex = 1; // 1 - header
+            var row = rowItr.next(); // skip the header row
+
+            while (rowItr.hasNext() && !isRowEmpty(row)) {
+                
+                setValues(rowItr.next());
+                statement.addBatch();
+
+                rowIndex++;
+                if (rowIndex % BATCH_SIZE == 0) {
+                    statement.executeBatch();
+                }
+                System.out.println("Sheet: " + sheetIndex + "/" + sheetCount + " | row: " + rowIndex + " - "
+                        + (rowIndex * 100) / lastRow + "%");
+                    
             }
-            return result.append("?)");
+            inputStream.close();
+            statement.executeBatch();
+            conn.commit();
+            sheetIndex++;
+//            break;
         }
-        
-        Iterator<String> iterator = columnNames.iterator();
-        int index = columnCount;
-        while (index > 1) {
-            String name = iterator.next();
-            result.append(name).append(", ");
-            index--;
-        }
-        result.append(iterator.next()).append(")");
-        return result;
+        // execute the remaining queries
+        statement.executeBatch();
+        conn.commit();
+        System.out.println();
     }
-
-    public String getSqlStatement() {
-        return Objects
-                .requireNonNull(insertStatement, "You need to build the statement first. Call method buildStatement().")
-                .toString();
-    }
-
-    public void setValues(Row row, PreparedStatement statement) throws InvalidCellValueException, SQLException {
+    
+    private void setValues(Row row) throws InvalidCellValueException, SQLException {
         Objects.requireNonNull(row, "Row must not be null");
 
         Iterator<String> columnSetItr = params.keySet().iterator();
@@ -208,94 +128,10 @@ public class ExcelToSqlMapper {
         }
     }
 
-    public void setValues(String[] row, PreparedStatement statement) throws NumberFormatException, SQLException {
-        setValues(row, statement, null);
+    private boolean isRowEmpty(Row row) {
+        if (row == null || row.getCell(0) == null) {
+            return true;
+        }
+        return false;
     }
-
-    public void setValues(String[] row, PreparedStatement statement, Set<Integer> skippableColumns)
-            throws NumberFormatException, SQLException {
-        Iterator<String> columnSetIterator = params.keySet().iterator();
-
-        int columnIndex = 1;
-        for (int i = 0; i < row.length; i++) {
-            if (skippableColumns != null && skippableColumns.contains(i)) {
-                continue;
-            }
-
-            switch (params.get(columnSetIterator.next())) {
-            case BOOLEAN -> statement.setBoolean(columnIndex, Boolean.parseBoolean(row[i]));
-            case DOUBLE -> statement.setDouble(columnIndex, Double.parseDouble(row[i]));
-            case INT -> statement.setInt(columnIndex, Integer.parseInt(row[i]));
-            case VARCHAR, TIME -> statement.setString(columnIndex, row[i]);
-            case DATE -> statement.setObject(columnIndex, LocalDate.parse(row[i], DateTimeFormatter.ISO_LOCAL_DATE));
-            }
-            columnIndex++;
-        }
-    }
-
-    public enum ColumnType {
-        BOOLEAN("BOOLEAN"), VARCHAR("VARCHAR(100)"), INT("INT"), DOUBLE("DOUBLE"), DATE("DATE"), TIME("TIME");
-
-        private final String value;
-
-        ColumnType(String value) {
-            this.value = value;
-        }
-
-        public String getValue() {
-            return value;
-        }
-    }
-
-    public enum ColumnConstraint {
-        NOT_NULL("NOT NULL"), NULLABLE(""), PRIMARY_KEY("NOT NULL"), UNIQUE("UNIQUE"); // DEFAULT, CHECK
-
-        private final String value;
-
-        ColumnConstraint(String value) {
-            this.value = value;
-        }
-
-        private String getValue() {
-            return " " + value;
-        }
-    }
-
-    public void checkErrors(boolean checkErrors) {
-        this.checkErrors = checkErrors;
-    }
-
-    static class CellErrorChecker {
-        static final Map<ColumnType, Pattern> map = new HashMap<>();
-        static {
-            map.put(ColumnType.BOOLEAN, Pattern.compile("(?i)true|false"));
-            map.put(ColumnType.DATE, Pattern.compile("\\d{4}-\\d{2}-\\d{2}"));
-            map.put(ColumnType.DOUBLE, Pattern.compile("-?\\d+(\\.\\d+)?"));
-            map.put(ColumnType.INT, Pattern.compile("-?\\d+"));
-            map.put(ColumnType.TIME, Pattern.compile("(?:\\d{2}|\\d):\\d{2}:\\d{2}(?:\\sAM|\\sPM)?"));
-        }
-
-        static String getInvalidCellValue(Cell cell, ColumnType type) {
-            if (type == ColumnType.VARCHAR) {
-                return null;
-            }
-            String strValue = formatCellValue(cell, type);
-            return map.get(type).matcher(strValue).matches() ? null : strValue;
-        }
-
-        static String formatCellValue(Cell cell, ColumnType type) {
-            try {
-                return switch (type) {
-                case BOOLEAN -> cell.getBooleanCellValue() ? "TRUE" : "FALSE";
-                case DOUBLE -> String.valueOf(cell.getNumericCellValue());
-                case INT -> String.valueOf((int) cell.getNumericCellValue());
-                case VARCHAR, TIME -> cell.getStringCellValue();
-                case DATE -> cell.getLocalDateTimeCellValue().toLocalDate().toString();
-                };
-            } catch (Exception any) {
-                return cell.getStringCellValue();
-            }
-        }
-    }
-
 }

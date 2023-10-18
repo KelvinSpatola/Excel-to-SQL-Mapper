@@ -3,6 +3,7 @@ package com.github.kspatola;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -12,15 +13,13 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.util.IOUtils;
-
 import com.github.kspatola.exception.InvalidCellValueException;
+import com.github.kspatola.mapper.CsvToSqlMapper;
 import com.github.kspatola.mapper.ExcelToSqlMapper;
-import com.github.kspatola.mapper.ExcelToSqlMapper.ColumnConstraint;
-import com.github.kspatola.mapper.ExcelToSqlMapper.ColumnType;
+import com.github.kspatola.mapper.Mapper;
+import com.github.kspatola.mapper.rules.ColumnConstraint;
+import com.github.kspatola.mapper.rules.ColumnType;
 import com.github.kspatola.util.GTAProperties;
-import com.github.pjfanning.xlsx.StreamingReader;
 import com.opencsv.CSVParser;
 import com.opencsv.CSVParserBuilder;
 import com.opencsv.CSVReader;
@@ -55,14 +54,11 @@ public class MapperTestApp {
     }
 
     public static void readFromExcel() {
-        IOUtils.setByteArrayMaxOverride(Integer.MAX_VALUE - 8);
-
 		File[] allFiles = new File(props.get("resources.data")).listFiles();
 
         try (Connection conn = getConnection()) {
-            conn.setAutoCommit(false);
-
-            ExcelToSqlMapper mapper = new ExcelToSqlMapper(conn, true);
+            
+            Mapper mapper = new ExcelToSqlMapper(conn, true);
 
 //			mapper.mapTable("transactions")
 //        			.column("store_code", ColumnType.VARCHAR)
@@ -121,8 +117,6 @@ public class MapperTestApp {
 //                    .buildStatement();
 
             System.out.println(mapper.getSqlStatement());
-            PreparedStatement statement = conn.prepareStatement(mapper.getSqlStatement());
-            statement.setFetchSize(Integer.MIN_VALUE);
 
             for (var file : allFiles) {
                 if (file.isHidden()) {
@@ -137,55 +131,17 @@ public class MapperTestApp {
                 System.out.println("**********************************************************");
                 System.out.println("Reading file: " + file.getName());
                 System.out.println("**********************************************************");
+                
+                mapper.readFile(file);
 
-                var inputStream = new FileInputStream(file);
-                var workbook = StreamingReader.builder().rowCacheSize(500).bufferSize(16384).open(inputStream);
-                var sheetItr = workbook.sheetIterator();
-                var sheetCount = workbook.getNumberOfSheets();
-                var sheetIndex = 1;
-
-                while (sheetItr.hasNext()) {
-                    var sheet = sheetItr.next();
-                    var rowItr = sheet.iterator();
-                    var lastRow = sheet.getLastRowNum();
-                    var rowIndex = 1; // 1 - header
-                    var row = rowItr.next(); // skip the header row
-
-                    while (rowItr.hasNext() && !isRowEmpty(row)) {
-                        row = rowItr.next();
-                        
-                        try {
-                            mapper.setValues(row, statement);
-                            statement.addBatch();
-    
-                            rowIndex++;
-                            if (rowIndex % BATCH_SIZE == 0) {
-                                statement.executeBatch();
-                            }
-                            System.out.println("Sheet: " + sheetIndex + "/" + sheetCount + " | row: " + rowIndex + " - "
-                                    + (rowIndex * 100) / lastRow + "%");
-    //                      printRow(row);
-                            
-                        } catch (InvalidCellValueException e) {
-                            e.printStackTrace();
-                            System.exit(0);
-                        }
-                    }
-                    inputStream.close();
-                    statement.executeBatch();
-                    conn.commit();
-                    sheetIndex++;
-//                    break;
-                }
-                // execute the remaining queries
-                statement.executeBatch();
-                conn.commit();
-                System.out.println();
             }
 
-        } catch (Exception e) {
+        } catch (InvalidCellValueException e) {
             e.printStackTrace();
-        }
+            System.exit(0);
+        } catch (SQLException|IOException e) {
+            e.printStackTrace();
+        } 
     }
 
     public static void readFromCSV() {
@@ -200,7 +156,7 @@ public class MapperTestApp {
         try (Connection conn = getConnection()) {
             conn.setAutoCommit(false);
 
-            ExcelToSqlMapper mapper = new ExcelToSqlMapper(conn);
+            CsvToSqlMapper mapper = new CsvToSqlMapper(conn);
             mapper.mapTable("trans2151")
                     .column("store", ColumnType.INT)
                     .column("ticket", ColumnType.INT)
@@ -225,14 +181,14 @@ public class MapperTestApp {
                 if (file.isHidden()) {
                     continue; // Skip temporary files
                 }
-                if (!file.getName().contains("2151 data")) {
+                var filename = file.getName();
+                
+                if (!filename.contains("2151 data")) {
                     System.out.println("Skipping file: " + file.getName());
                     continue; // Skip temporary files
                 }
 
-                var filename = file.getName();
-
-                if (!file.getName().contains(".csv")) {
+                if (!filename.contains(".csv")) {
                     System.out.println("Skipping file: " + filename);
                     continue; // Skip temporary files
                 }
@@ -299,6 +255,7 @@ public class MapperTestApp {
 //                    data[valueIndex] = data[valueIndex].replace(',', '.');
 
 //                    mapper.setValues(data, statement, skippableColumns);
+                    
                     mapper.setValues(data, statement);
                     statement.addBatch();
 
@@ -323,13 +280,6 @@ public class MapperTestApp {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    private static boolean isRowEmpty(Row row) {
-        if (row == null || row.getCell(0) == null) {
-            return true;
-        }
-        return false;
     }
 
     private static void printExecutionTime(long startTime) {
