@@ -2,17 +2,16 @@ package com.github.kspatola;
 
 import java.io.File;
 import java.io.FileReader;
-import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import com.github.kspatola.exception.InvalidCellValueException;
 import com.github.kspatola.mapper.CsvToSqlMapper;
 import com.github.kspatola.mapper.ExcelToSqlMapper;
 import com.github.kspatola.mapper.Mapper;
@@ -53,12 +52,10 @@ public class MapperTestApp {
     }
 
     public static void readFromExcel() {
-		List<File> allFiles = Stream.of(new File(props.get("resources.data")).listFiles()).collect(Collectors.toList());
-
         try (Connection conn = getConnection()) {
             
             Mapper mapper = new ExcelToSqlMapper(conn, true);
-
+            
             mapper.mapTable("product")
                     .column("sku", ColumnType.INT, ColumnConstraint.PRIMARY_KEY)
                     .column("sku_desc", ColumnType.VARCHAR)
@@ -70,10 +67,8 @@ public class MapperTestApp {
                     .column("deactivation_date", ColumnType.DATE, ColumnConstraint.NULLABLE)
                     .buildStatement();
             
-            System.out.println(mapper.getSqlStatement());
-            
             mapper.loadData()
-                    .from(allFiles) 
+                    .from(Arrays.asList(new File(props.get("resources.data")).listFiles())) 
                     .except(f -> !f.getName().contains("Products"))
                     .except(f -> f.isHidden())
                     .parseData();
