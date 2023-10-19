@@ -1,7 +1,6 @@
 package com.github.kspatola;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.sql.Connection;
@@ -54,39 +53,12 @@ public class MapperTestApp {
     }
 
     public static void readFromExcel() {
-		File[] allFiles = new File(props.get("resources.data")).listFiles();
+		List<File> allFiles = Stream.of(new File(props.get("resources.data")).listFiles()).collect(Collectors.toList());
 
         try (Connection conn = getConnection()) {
             
             Mapper mapper = new ExcelToSqlMapper(conn, true);
 
-//			mapper.mapTable("transactions")
-//        			.column("store_code", ColumnType.VARCHAR)
-//        			.column("store_desc", ColumnType.VARCHAR)
-//					.column("date", ColumnType.DATE)
-//					.column("time", ColumnType.TIME)
-//					.column("ticket", ColumnType.VARCHAR)
-//					.column("sku", ColumnType.INT)
-//					.column("sku_desc", ColumnType.VARCHAR)
-//					.column("uom", ColumnType.VARCHAR)
-//					.column("quantity", ColumnType.DOUBLE)
-//					.column("unit_value", ColumnType.DOUBLE)
-//					.column("total_value", ColumnType.DOUBLE)
-////					.column("payment_type", ColumnType.VARCHAR)
-//					.buildStatement();
-
-//			mapper.mapTable("store11930")
-//        			.column("ticket", ColumnType.INT)
-//					.column("store", ColumnType.INT)
-//					.column("date", ColumnType.DATE)
-//					.column("time", ColumnType.TIME)
-//					.column("cashdesk", ColumnType.INT)
-//					.column("payment", ColumnType.VARCHAR)
-//					.column("sku", ColumnType.VARCHAR)
-//					.column("quantity", ColumnType.DOUBLE)
-//					.column("value", ColumnType.DOUBLE)
-//					.buildStatement();
-            
             mapper.mapTable("product")
                     .column("sku", ColumnType.INT, ColumnConstraint.PRIMARY_KEY)
                     .column("sku_desc", ColumnType.VARCHAR)
@@ -98,48 +70,15 @@ public class MapperTestApp {
                     .column("deactivation_date", ColumnType.DATE, ColumnConstraint.NULLABLE)
                     .buildStatement();
             
-            // AUCHAN
-//            mapper.mapTable("pos2")
-//                    .column("pos_store", ColumnType.INT)
-//                    .column("cashdesk_id", ColumnType.INT)
-//                    .column("cashdesk_group", ColumnType.VARCHAR)
-//                    .column("pos_type_generic", ColumnType.VARCHAR)
-//                    .column("pos_type_specific", ColumnType.VARCHAR)
-//                    .buildStatement();
-            
-//            mapper.mapTable("product")
-//                    .column("universe_id", ColumnType.VARCHAR)
-//                    .column("universe_desc", ColumnType.VARCHAR)
-//                    .column("market_id", ColumnType.VARCHAR)
-//                    .column("market_desc", ColumnType.VARCHAR)
-//                    .column("cat_id", ColumnType.INT, ColumnConstraint.UNIQUE)
-//                    .column("cat_desc", ColumnType.VARCHAR)
-//                    .buildStatement();
-
             System.out.println(mapper.getSqlStatement());
-
-            for (var file : allFiles) {
-                if (file.isHidden()) {
-                    continue; // Skip temporary files
-                }
-                
-                if (!file.getName().contains("Products")) {
-                    System.out.println("Skipping file: " + file.getName());
-                    continue; // Skip unwanted files
-                }
-                
-                System.out.println("**********************************************************");
-                System.out.println("Reading file: " + file.getName());
-                System.out.println("**********************************************************");
-                
-                mapper.readFile(file);
-
-            }
-
-        } catch (InvalidCellValueException e) {
-            e.printStackTrace();
-            System.exit(0);
-        } catch (SQLException|IOException e) {
+            
+            mapper.loadData()
+                    .from(allFiles) 
+                    .except(f -> !f.getName().contains("Products"))
+                    .except(f -> f.isHidden())
+                    .parseData();
+            
+        } catch (SQLException e) {
             e.printStackTrace();
         } 
     }

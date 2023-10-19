@@ -5,12 +5,14 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -36,7 +38,7 @@ public abstract class Mapper {
     static protected Connection conn;
     protected PreparedStatement statement;
     
-    static protected int BATCH_SIZE = 10_000;
+    static protected int batchSize = 10_000;
 
     // CONSTRUCTOR
     public Mapper(Connection connection, boolean checkErrors) throws SQLException {
@@ -77,7 +79,7 @@ public abstract class Mapper {
 
     public final void buildStatement() throws SQLException {
         if (tableName == null || tableName.isBlank()) {
-            throw new IllegalStateException("Missing a table reference. Call method insertInto(String tableName)");
+            throw new IllegalStateException("Missing a table reference. Call method mapTable(String tableName)");
         }
         if (params.isEmpty()) {
             throw new IllegalStateException("You need to set the columns.");
@@ -107,6 +109,8 @@ public abstract class Mapper {
             isDefaultPK = true;
             System.out.println("Creating a default 'id' column for PK");
         }
+        
+        conn.createStatement().execute("DROP TABLE IF EXISTS " + tableName);
 
         StringBuilder createTableStatement = new StringBuilder("CREATE TABLE IF NOT EXISTS " + tableName + " (");
         String pk = null;
@@ -164,10 +168,15 @@ public abstract class Mapper {
         return insertStatement.toString();
     }
     
-    public abstract void readFile(File file) throws InvalidCellValueException, IOException, SQLException;
+    protected abstract void readFile(File file) 
+            throws InvalidCellValueException, IOException, SQLException;
 
     public final void checkErrors(boolean checkErrors) {
         this.checkErrors = checkErrors;
+    }
+    
+    public void setBatchSize(int size) {
+        batchSize = size;
     }
 
     static class CellErrorChecker {
@@ -202,4 +211,55 @@ public abstract class Mapper {
             }
         }
     }
+    
+    public FileStream loadData() {
+        return new FileStream();
+    }
+    
+    public class FileStream {
+        private List<File> allFiles;
+        private List<Predicate<File>> streamFilters = new ArrayList<>();
+        
+        public FileStream from(List<File> files) {
+            this.allFiles = files;
+            return this;
+        }
+        
+        public FileStream except(Predicate<File> predicate) {
+            streamFilters.add(predicate);
+            return this;
+        }
+        
+        public void parseData() {
+            for (File f : allFiles) {
+                
+                boolean skipFile = false;
+                for (Predicate<File> filter : streamFilters) {
+                    if (filter.test(f)) {
+                        skipFile = true;
+                        break;
+                    }
+                }
+                if (skipFile) {
+                    System.out.println("Skipping file: " + f.getName());
+                    continue;
+                }
+
+                try {
+                    System.out.println("**********************************************************");
+                    System.out.println("Reading file: " + f.getName());
+                    System.out.println("**********************************************************");
+                    
+                    readFile(f);
+                    
+                } catch (InvalidCellValueException e) {
+                    e.printStackTrace();
+                    System.exit(0);
+                } catch (SQLException | IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+    
 }

@@ -34,7 +34,7 @@ public class ExcelToSqlMapper extends Mapper {
     }
 
     @Override
-    public void readFile(File file) throws InvalidCellValueException, IOException, SQLException {
+    protected void readFile(File file) throws InvalidCellValueException, IOException, SQLException {
         if (statement == null) {
             throw new IllegalStateException("You need to build the statement first. Call method buildStatement().");
         }
@@ -51,7 +51,7 @@ public class ExcelToSqlMapper extends Mapper {
             Iterator<Row> rowItr = sheet.iterator();
             int lastRow = sheet.getLastRowNum();
             int rowIndex = 1; // 1 - header
-            var row = rowItr.next(); // skip the header row
+            Row row = rowItr.next(); // skip the header row
 
             while (rowItr.hasNext() && !isRowEmpty(row)) {
                 
@@ -59,7 +59,7 @@ public class ExcelToSqlMapper extends Mapper {
                 statement.addBatch();
 
                 rowIndex++;
-                if (rowIndex % BATCH_SIZE == 0) {
+                if (rowIndex % batchSize == 0) {
                     statement.executeBatch();
                 }
                 System.out.println("Sheet: " + sheetIndex + "/" + sheetCount + " | row: " + rowIndex + " - "
